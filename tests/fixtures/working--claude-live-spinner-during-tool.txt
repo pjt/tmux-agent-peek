@@ -1,0 +1,10 @@
+::peek:: %1 claude -
+  ⎿  $ sleep 8 && echo finished
+✳ Mustering… (5s · ↓ 113 tokens · thought for 1s)
+  ⎿  Tip: Use /focus to see just your prompt, a one-line summary of the work, and the response
+                                                                                                     Update available! R
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  /Users/me/tmp  [Sonnet 4.6 | ctx:12% | $0.0676]
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents

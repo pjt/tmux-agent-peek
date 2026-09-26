@@ -37,7 +37,8 @@ peek reads those.
 1. **Discover** — one `tmux list-panes -a` call. A pane is an agent pane if
    - its foreground command is an agent (`claude`, `codex`, `opencode`,
      `aider`, `goose`, `gemini`, `kimi`, `pi`), or
-   - its title looks like an agent's (`π - …` for pi, `✳ …` for Claude Code) —
+   - its title looks like an agent's (`π - …` for pi, `✳ …` for Claude Code —
+     which keeps the `✳` while working, so its title never carries state) —
      unless the foreground is a local shell, which means the agent exited and
      left a stale title behind.
 

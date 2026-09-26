@@ -17,7 +17,9 @@ CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tmux-agent-peek"
 DEFAULT_CMD_PATTERN='^(claude|codex|opencode|aider|goose|gemini|kimi|kimi-code|pi)$'
 # Titles that identify an agent regardless of foreground command. pi sets
 # "π - <dir>" (or "π <glyph> <dir>" with extras/pi-title-state.ts); Claude
-# Code sets "✳ <topic>" (and, reportedly, a braille spinner while working).
+# Code sets "✳ <topic>" — and keeps the ✳ while working (verified on 2.1.x),
+# so for Claude the title is a detection signal only, never a state signal.
+# The braille alternatives cover older Claude builds / other spinners.
 DEFAULT_TITLE_PATTERN='^π( |$)|^(✳|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|⠂|⠐) '
 # Foreground commands that mean "the agent is on the other side of this".
 DEFAULT_VIA_PATTERN='^(ssh|mosh|mosh-client|et|docker|podman|kubectl|zmx)$'
