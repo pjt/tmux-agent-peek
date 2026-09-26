@@ -1,0 +1,15 @@
+::peek:: %1 pi -
+   ◉ Map file now keyed on #{pane_id} (e.g. %42) instead of session:window_index.pane_index. Pane IDs are never reused    │
+     within a tmux server's lifetime, so a new pane can never inherit a dead pane's stale mapping.                        │
+   ◉ File format is now 5 columns: pane_id, position (session:window.pane, kept for human/restore-tool readability),      │
+     remote_session, window_name, updated_at.                                                                             │
+   ◉ Fast path is unchanged — still zero extra round-trips on a genuine cache hit.                                        │
+   ◉ Cleared your old (now-superseded 4-column) ~/.dht_sessions.tsv since those keys can never match again anyway.        ┃
+                                                                                                                          ┃
+   ✻ Turn took 52s (Total time 1h 30m 44s · 14 turns)                                                                     ┃
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+↑248 ↓146k R12M W539k CH99.7% $5.189 21.5%/1.0M (auto)                            (vertex-anthropic) claude-sonnet-5 • high

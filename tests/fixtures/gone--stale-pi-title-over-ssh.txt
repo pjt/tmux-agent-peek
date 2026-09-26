@@ -1,0 +1,4 @@
+::peek:: %1 pi ssh
+me@devbox:~/dev$ ls
+workspace  notes  scratch
+me@devbox:~/dev$

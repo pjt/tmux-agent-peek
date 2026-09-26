@@ -1,0 +1,12 @@
+::peek:: %1 claude -
+⏺ Bash(rm -rf build/)
+  ⎿  Running…
+
+╭──────────────────────────────────────────────────────────────╮
+│ Bash command                                                 │
+│   rm -rf build/                                              │
+│ Do you want to proceed?                                      │
+│ ❯ 1. Yes                                                     │
+│   2. Yes, and don't ask again for rm commands                │
+│   3. No, and tell Claude what to do differently (esc)        │
+╰──────────────────────────────────────────────────────────────╯

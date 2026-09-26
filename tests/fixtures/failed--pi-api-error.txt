@@ -1,0 +1,6 @@
+::peek:: %1 pi -
+ Error: 429 Too Many Requests: quota exceeded
+
+──────────────────────────────────────────────────────────────
+~/dev/app
+↑3 ↓1.1k $0.012 0.4%/1.0M (auto)

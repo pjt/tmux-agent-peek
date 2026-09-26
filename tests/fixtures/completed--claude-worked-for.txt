@@ -1,0 +1,9 @@
+::peek:: %1 claude -
+⏺ Done — the flaky test now waits for the socket to be ready.
+
+✻ Worked for 1m 5s
+
+╭──────────────────────────────────────────────────────────────╮
+│ >                                                            │
+╰──────────────────────────────────────────────────────────────╯
+  ⏵⏵ bypass permissions on (shift+tab to cycle)

@@ -1,0 +1,9 @@
+::peek:: %1 claude -
+⏺ Reading the config loader to see where defaults are applied.
+
+✻ Percolating… (12s · ↓ 1.2k tokens · esc to interrupt)
+
+╭──────────────────────────────────────────────────────────────╮
+│ >                                                            │
+╰──────────────────────────────────────────────────────────────╯
+  ? for shortcuts

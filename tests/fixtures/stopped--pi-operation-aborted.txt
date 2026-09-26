@@ -1,0 +1,7 @@
+::peek:: %1 pi -
+ Looking at the migration files now…
+ Operation aborted
+
+──────────────────────────────────────────────────────────────
+~/dev/app
+↑3 ↓1.1k $0.012 0.4%/1.0M (auto)
