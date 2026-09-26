@@ -114,26 +114,49 @@ capture() { # stdin: discover rows -> stdout: classify.awk input
 #
 # State rules:
 #   raw   = title state if the title carries one, else the screen state
-#   if raw == previous raw: keep the previous final state (so a completed
-#     that aged to idle stays idle)
+#   previous final completed + raw idle/completed: stay completed (screen
+#     markers scroll in and out of view as the agent redraws; that must not
+#     read as a new turn ending)
+#   else if raw == previous raw: keep the previous final state (so a
+#     completed that aged to idle stays idle)
 #   else if raw is a screen "idle" and the previous final was
 #     working/needs_input: completed (pi leaves no "done" marker on screen)
 #   completed older than @agent-peek-completed-ttl ages to idle.
+#
+# Notifications fire only for real turn boundaries: into needs_input from
+# anything, or into completed/failed/stopped from working/needs_input.
+#
+# Concurrency: tmux runs a status-line #() job per attached client, so
+# several scans start at the same instant. The cache read-merge-write runs
+# under a lock; a scan that waited for the lock sees the winner's cache, so
+# it finds no transition and sends no duplicate banner. If a scan finished
+# while we waited, its result is reused outright.
 scan() {
-  local cands screens server_pid cache new_cache trans ttl
+  local cands screens server_pid cache new_cache trans ttl start lock result log
+  start="$(date +%s)"
   mkdir -p "$CACHE_DIR" 2>/dev/null
   cands="$(discover)"
   [ -n "$cands" ] || return 0
-  screens="$(printf '%s\n' "$cands" | capture | awk -v TAIL="$(opt @agent-peek-tail 40)" -f "$CLASSIFY")"
 
   server_pid="$(printf '%s\n' "$cands" | head -n 1 | cut -f 12)"
   cache="$CACHE_DIR/state-$server_pid.tsv"
+  result="$CACHE_DIR/scan-$server_pid.tsv"
+  lock="$CACHE_DIR/lock-$server_pid"
+  log="$CACHE_DIR/transitions.log"
   new_cache="$cache.$$"
   trans="$CACHE_DIR/transitions.$$"
   ttl="$(opt @agent-peek-completed-ttl 1800)"
+
+  lock_acquire "$lock" || { [ -f "$result" ] && cat "$result"; return 0; }
+  # Another client's scan completed while we waited: reuse it.
+  if [ -f "$result" ] && [ "$(mtime "$result")" -gt "$start" ] 2>/dev/null; then
+    cat "$result"; rmdir "$lock" 2>/dev/null; return 0
+  fi
+
+  screens="$(printf '%s\n' "$cands" | capture | awk -v TAIL="$(opt @agent-peek-tail 40)" -f "$CLASSIFY")"
   [ -f "$cache" ] || : > "$cache"
 
-  awk -v now="$(date +%s)" -v ttl="$ttl" -v newcache="$new_cache" -v trans="$trans" '
+  awk -v now="$(date +%s)" -v ttl="$ttl" -v newcache="$new_cache" -v trans="$trans" -v logf="$log" '
     BEGIN { FS = OFS = "\t" }
     FILENAME == ARGV[1] { pfinal[$1] = $2; psince[$1] = $3; praw[$1] = $4; next }
     FILENAME == ARGV[2] { sstate[$1] = $2; smatch[$1] = $3; next }
@@ -144,7 +167,10 @@ scan() {
 
       if (ts != "-") { raw = ts; src = "title" } else { raw = ss; src = "screen" }
 
-      if ((id in praw) && raw == praw[id]) {
+      if ((id in pfinal) && pfinal[id] == "completed" && (raw == "idle" || raw == "completed")) {
+        final = "completed"; since = psince[id]
+        if (raw != "completed") src = "inferred"
+      } else if ((id in praw) && raw == praw[id]) {
         final = pfinal[id]; since = psince[id]
         if (final != raw) src = "inferred"
       } else {
@@ -157,9 +183,14 @@ scan() {
       if (final == "completed" && ttl > 0 && now - since >= ttl) final = "idle"
 
       print id, final, since, raw > newcache
-      if ((id in pfinal) && final != pfinal[id] &&
-          final ~ /^(needs_input|completed|failed|stopped)$/)
-        print id, final, kind, via, $5, $6, $7 > trans
+      m = (id in smatch) ? smatch[id] : "-"
+      if ((id in pfinal) && final != pfinal[id]) {
+        p = pfinal[id]
+        print strftime_now(), id, p " -> " final, "raw=" raw, src, substr(m, 1, 100) >> logf
+        if (final == "needs_input" ||
+            (final ~ /^(completed|failed|stopped)$/ && (p == "working" || p == "needs_input")))
+          print id, final, kind, via, $5, $6, $7 > trans
+      }
 
       rank = 5
       if (final == "needs_input") rank = 0
@@ -167,19 +198,50 @@ scan() {
       else if (final == "stopped") rank = 2
       else if (final == "working") rank = 3
       else if (final == "completed") rank = 4
-      m = (id in smatch) ? smatch[id] : "-"
       print id, rank, final, $5, $6, $7, $8, $9, $10, $11, kind, via, src, m
     }
+    function strftime_now(   c, t) {  # macOS awk has no strftime()
+      if (NOW_STR == "") { c = "date +%H:%M:%S"; c | getline NOW_STR; close(c) }
+      return NOW_STR
+    }
   ' "$cache" <(printf '%s\n' "$screens") <(printf '%s\n' "$cands") |
-    sort -t '	' -k2,2n -k9,9nr -k10,10n -k5,5n
+    sort -t '	' -k2,2n -k9,9nr -k10,10n -k5,5n > "$result.$$"
 
   [ -f "$new_cache" ] && mv -f "$new_cache" "$cache" 2>/dev/null
+  mv -f "$result.$$" "$result" 2>/dev/null
+  rmdir "$lock" 2>/dev/null
+  cat "$result"
+
   if [ -f "$trans" ]; then
     [ "${PEEK_NOTIFY:-0}" = 1 ] && notify < "$trans"
     rm -f "$trans"
   fi
-  # drop caches from dead tmux servers
-  find "$CACHE_DIR" -name 'state-*.tsv' -mtime +1 -delete 2>/dev/null
+  # keep the log short; drop state from dead tmux servers
+  if [ -f "$log" ] && [ "$(wc -l < "$log")" -gt 1000 ]; then
+    tail -n 500 "$log" > "$log.$$" && mv -f "$log.$$" "$log"
+  fi
+  find "$CACHE_DIR" \( -name 'state-*.tsv' -o -name 'scan-*.tsv' \) -mtime +1 -delete 2>/dev/null
+}
+
+mtime() { # <file> -> epoch seconds. GNU stat first: BSD's -f means something else there.
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null
+}
+
+# mkdir is atomic: whoever creates the directory holds the lock. Waits up to
+# ~3s; breaks a lock older than 15s (a scan that crashed or was killed).
+lock_acquire() { # <dir>
+  local i=0 mt
+  while ! mkdir "$1" 2>/dev/null; do
+    if [ "$i" -ge 30 ]; then
+      mt="$(mtime "$1")"
+      if [ -n "$mt" ] && [ "$(( $(date +%s) - mt ))" -ge 15 ]; then
+        rmdir "$1" 2>/dev/null; i=0; continue
+      fi
+      return 1
+    fi
+    sleep 0.1
+    i=$((i + 1))
+  done
 }
 
 # ---------------------------------------------------------------- notify
@@ -205,14 +267,44 @@ frontmost_app() {
     sed -n 's/.*"LSBundlePath"="\(.*\)".*/\1/p'
 }
 
+# Resolve a sound setting to a file: an existing path (mp3/aiff/wav/caf,
+# ~ allowed) or a macOS system sound name ("Glass", "Ping", "Funk", …).
+sound_file() { # <name-or-path> -> path on stdout, or nothing
+  local s="${1/#\~/$HOME}"
+  if [ -f "$s" ]; then printf '%s' "$s"; return 0; fi
+  for d in "$HOME/Library/Sounds" /System/Library/Sounds; do
+    [ -f "$d/$s.aiff" ] && { printf '%s' "$d/$s.aiff"; return 0; }
+  done
+  return 1
+}
+
+play_sound() { # <state>
+  local f
+  f="$(sound_file "$(opt "@agent-peek-sound-$1" "$(opt @agent-peek-sound Glass)")")" || return 0
+  if command -v afplay >/dev/null 2>&1; then afplay "$f" >/dev/null 2>&1 &
+  elif command -v paplay >/dev/null 2>&1; then paplay "$f" >/dev/null 2>&1 &
+  elif command -v aplay >/dev/null 2>&1; then aplay -q "$f" >/dev/null 2>&1 &
+  fi
+}
+
 # stdin: transitions "id state kind via session win_idx win_name".
 # Transitions are only detected when a scan runs — i.e. every status-interval
-# via the status line — so banners lag by up to that interval.
+# via the status line — so alerts lag by up to that interval.
+#
+# @agent-peek-notify-style is a comma list of:
+#   banner   macOS Notification Center (clickable with terminal-notifier);
+#            silent — add "sound" if you want audio too
+#   sound    play @agent-peek-sound[-<state>] (afplay / paplay / aplay)
+#   bell     ring the terminal bell on every attached client
+#   message  tmux display-message on every attached client
 notify() {
   [ "$(opt @agent-peek-notify on)" = on ] || return 0
-  local id st kind via session win_idx win_name visible client_pid app title body exec_cmd tmux_bin
+  local style states id st kind via session win_idx win_name visible client_pid app title body exec_cmd tmux_bin tty
+  style=",$(opt @agent-peek-notify-style banner | tr -d ' '),"
+  states=",$(opt @agent-peek-notify-states 'needs_input,completed,failed,stopped' | tr -d ' '),"
   tmux_bin="$(command -v tmux)"
   while IFS='	' read -r id st kind via session win_idx win_name; do
+    case "$states" in *",$st,"*) ;; *) continue ;; esac
     visible="$(tmux display-message -p -t "$id" '#{&&:#{pane_active},#{&&:#{window_active},#{session_attached}}}' 2>/dev/null)"
     client_pid="$(tmux list-clients -t "$session" -F '#{client_pid}' 2>/dev/null | head -n 1)"
     app=''
@@ -229,17 +321,29 @@ notify() {
       *) continue ;;
     esac
     title="$title · $session:$win_idx $win_name"
-    if command -v terminal-notifier >/dev/null 2>&1; then
-      exec_cmd="PATH=\"$(dirname "$tmux_bin"):\$PATH\"; '$SELF' jump '$id'"
-      [ -n "$app" ] && exec_cmd="open '$app'; $exec_cmd"
-      terminal-notifier -title "$title" -message "$body" -group "agent-peek-$id" \
-        -sound default -execute "$exec_cmd" >/dev/null 2>&1 &
-    elif command -v osascript >/dev/null 2>&1; then
-      osascript -e "display notification \"${body//\"/}\" with title \"${title//\"/}\" sound name \"default\"" \
-        >/dev/null 2>&1 &
-    else
-      tmux display-message "agent-peek: $title — $body" 2>/dev/null
-    fi
+
+    case "$style" in *,sound,*) play_sound "$st" ;; esac
+    case "$style" in *,bell,*)
+      tmux list-clients -F '#{client_tty}' 2>/dev/null | while IFS= read -r tty; do
+        [ -w "$tty" ] && printf '\a' > "$tty"
+      done ;;
+    esac
+    case "$style" in *,message,*)
+      tmux list-clients -F '#{client_name}' 2>/dev/null | while IFS= read -r c; do
+        tmux display-message -c "$c" "agent-peek: $title — $body" 2>/dev/null
+      done ;;
+    esac
+    case "$style" in *,banner,*)
+      if command -v terminal-notifier >/dev/null 2>&1; then
+        exec_cmd="PATH=\"$(dirname "$tmux_bin"):\$PATH\"; '$SELF' jump '$id'"
+        [ -n "$app" ] && exec_cmd="open '$app'; $exec_cmd"
+        terminal-notifier -title "$title" -message "$body" -group "agent-peek-$id" \
+          -execute "$exec_cmd" >/dev/null 2>&1 &
+      elif command -v osascript >/dev/null 2>&1; then
+        osascript -e "display notification \"${body//\"/}\" with title \"${title//\"/}\"" \
+          >/dev/null 2>&1 &
+      fi ;;
+    esac
   done
 }
 
@@ -496,9 +600,12 @@ case "${1:-popup}" in
   counts) counts ;;
   status) status_line ;;
   debug)  debug "${2:-}" ;;
+  log)    tail -n "${2:-30}" "$CACHE_DIR/transitions.log" 2>/dev/null ;;
+  test-notify) # <state>: fire the configured alert for a fake transition
+          printf '%s\t%s\tpi\t-\ttest\t0\ttest\n' '%99999' "${2:-completed}" | notify ;;
   raw)    discover | capture ;;   # classifier input, for fixtures/tuning
   picker) picker ;;
   jump)   jump "${2:?pane_id required}" ;;
   popup)  popup ;;
-  *)      echo "usage: agent-peek.sh [popup|picker|list|counts|status|debug [pane_id]|raw|jump <pane_id>]" >&2; exit 1 ;;
+  *)      echo "usage: agent-peek.sh [popup|picker|list|counts|status|debug [pane_id]|log [n]|test-notify [state]|raw|jump <pane_id>]" >&2; exit 1 ;;
 esac

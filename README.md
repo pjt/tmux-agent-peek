@@ -89,12 +89,35 @@ Any agent can join in by setting its title to `<mark> <glyph> <text>`.
 ## Notifications
 
 The status-line segment is also the poller: each refresh
-(`status-interval`, default 15 s) runs a scan, and state changes into
-needs input / completed / failed / stopped raise a macOS banner — clickable
-(jumps to the pane) with [terminal-notifier](https://github.com/julienXX/terminal-notifier),
-plain via `osascript` otherwise. Banners are skipped when you're already
-looking at the pane. Lower `status-interval` for snappier banners; a scan
-costs ~30–150 ms.
+(`status-interval`, default 15 s) runs a scan, and turn boundaries — into
+needs input from anything, into completed / failed / stopped from working —
+raise an alert. Nothing fires when you're already looking at the pane.
+Lower `status-interval` for snappier alerts; a scan costs ~30–150 ms.
+
+Pick any combination with `@agent-peek-notify-style` (comma list):
+
+| style | what happens |
+|---|---|
+| `banner` | macOS Notification Center, silent. Clickable (jumps to the pane) with [terminal-notifier](https://github.com/julienXX/terminal-notifier), plain via `osascript` otherwise |
+| `sound` | plays `@agent-peek-sound-<state>`, else `@agent-peek-sound` (`afplay` / `paplay` / `aplay`) |
+| `bell` | rings the terminal bell on every attached client (your terminal decides audible vs. visual) |
+| `message` | `tmux display-message` on every attached client |
+
+A sound is a file path (mp3/aiff/wav/caf, `~` ok) or a macOS system sound
+name (`Glass`, `Ping`, `Funk`, `Hero`, … from `/System/Library/Sounds`).
+
+```tmux
+set -g @agent-peek-notify-style 'sound'                 # audio only
+set -g @agent-peek-sound 'Glass'                        # default for all states
+set -g @agent-peek-sound-needs_input 'Funk'             # per-state override
+set -g @agent-peek-notify-states 'needs_input,completed' # skip failed/stopped
+```
+
+Try the current settings with `scripts/agent-peek.sh test-notify completed`.
+
+Scans are serialized with a lock: tmux runs one status job per attached
+client, and without it every client would detect — and announce — the same
+transition.
 
 ## Install
 
@@ -113,7 +136,11 @@ tmux-agent-view, set a different key for one of them.
 |---|---|---|
 | `@agent-peek-key` | `a` | key after prefix that opens the picker |
 | `@agent-peek-status` | `on` | prepend the agent summary to `status-right` |
-| `@agent-peek-notify` | `on` | macOS banners on state changes |
+| `@agent-peek-notify` | `on` | alerts on turn boundaries (`off` mutes all) |
+| `@agent-peek-notify-style` | `banner` | comma list: `banner`, `sound`, `bell`, `message` |
+| `@agent-peek-notify-states` | `needs_input,completed,failed,stopped` | which states alert |
+| `@agent-peek-sound` | `Glass` | sound file or system sound name |
+| `@agent-peek-sound-<state>` | — | per-state sound override |
 | `@agent-peek-completed-ttl` | `1800` | seconds before completed ages to idle (0 = never) |
 | `@agent-peek-tail` | `40` | bottom screen lines the classifier examines |
 | `@agent-peek-cmd-pattern` | see script | regex: foreground commands that are agents |
@@ -127,6 +154,7 @@ tmux-agent-view, set a different key for one of them.
 scripts/agent-peek.sh debug        # every candidate: state, source, matched line
 scripts/agent-peek.sh debug %27    # one pane
 scripts/agent-peek.sh raw          # the exact classifier input
+scripts/agent-peek.sh log          # recent state transitions (with matched line)
 tests/run.sh                       # fixture tests
 ```
 
