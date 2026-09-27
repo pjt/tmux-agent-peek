@@ -17,5 +17,21 @@ for f in tests/fixtures/*.txt; do
     awk -f scripts/classify.awk "$f" | cut -f3 | sed 's/^/        matched: /'
   fi
 done
+# Place (agent-reported cwd/branch) checks: fixture | expected 4th column
+while IFS='|' read -r name want; do
+  [ -n "$name" ] || continue
+  got="$(awk -f scripts/classify.awk "tests/fixtures/$name.txt" | cut -f4)"
+  if [ "$got" = "$want" ]; then
+    pass=$((pass + 1)); printf '  ok    place %s\n' "$name"
+  else
+    fail=$((fail + 1)); printf '  FAIL  place %s (got %s, want %s)\n' "$name" "$got" "$want"
+  fi
+done <<'EOF'
+completed--pi-via-dht-wrapper-48|⎇ feat/richer-status · ~/dev/web-api
+completed--pi-via-dht-wrapper-49|⎇ main · ~/dev/data-query
+idle--pi-over-ssh-zmx|~/dev
+working--claude-spinner|-
+EOF
+
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -44,12 +44,13 @@ peek reads those.
    as reached *via* that command. If it's a shell, the pane is marked
    *via script*: a wrapper (say, a reconnect loop around `ssh`) leads the
    foreground process group, so tmux reports the script's interpreter.
-2. **Read state**, first match wins:
-   1. **Title glyph** — `π ✻ dev`: an exact state published by the agent
-      itself. See [pi-title-state](#optional-exact-state-for-pi).
-   2. **Screen** — one batched `tmux capture-pane` for every candidate
-      (~10 ms total), classified by [`scripts/classify.awk`](scripts/classify.awk).
-      The marker closest to the bottom of the screen wins.
+2. **Read state from the screen** — one batched `tmux capture-pane` for
+   every candidate (~10 ms total), classified by
+   [`scripts/classify.awk`](scripts/classify.awk). The marker closest to the
+   bottom of the screen wins. The title says *where* an agent is; the screen
+   says *what* it's doing. Each covers the other's blind spot: stale titles
+   are caught on screen, and agent-looking text in a non-agent pane (vim on
+   a transcript) never gets past the title gate.
 3. **Infer** — a small per-server cache remembers each pane's last state.
    `working → idle` on screen becomes **completed** (stock pi leaves no
    "done" marker). Completed ages to idle after 30 min.
@@ -58,6 +59,10 @@ peek reads those.
    (via ssh/script/…), the pane is dropped if the agent's UI isn't visible
    (pi's token footer, Claude's prompt chrome) **or** the bottom line is a
    shell prompt (`❯`, `$`, `#`, `%`, `➜`, `λ`, `»`).
+
+For agents behind ssh/zmx/a script, the local pane's cwd is meaningless,
+so the place column shows what the agent itself displays: pi's footer line
+`~/dev/web-api (spike/x) • session` becomes `⇄ ⎇ spike/x · ~/dev/web-api`.
 
 Preview and jump are plain `tmux capture-pane` / `switch-client` — they work
 for remote agents too, because the remote agent *is* drawing in a local pane.
@@ -72,20 +77,6 @@ for remote agents too, because the remote agent *is* drawing in a local pane.
 | `✻ working` | spinner line `✻ Doing… (…)`, `esc to interrupt`, pi `Working (esc to interrupt)` |
 | `✔ completed` | `✻ Worked for 1m 5s`, `✻ Turn took 52s`, `※ recap:`; or inferred from working → idle |
 | `○ idle` | none of the above |
-
-## Optional: exact state for pi
-
-[`extras/pi-title-state.ts`](extras/pi-title-state.ts) is a tiny pi extension
-that rewrites pi's title from `π - dev` to `π <glyph> dev`, glyph ∈
-`▲ ✖ ■ ✻ ✔ ○`. The title travels through ssh/zmx/docker like any other
-output, so peek gets exact, event-driven state — including short turns that
-finish between polls. Install it wherever pi runs (remote host, container):
-
-```sh
-cp extras/pi-title-state.ts ~/.pi/agent/extensions/
-```
-
-Any agent can join in by setting its title to `<mark> <glyph> <text>`.
 
 ## Notifications
 
@@ -165,9 +156,9 @@ When peek gets a pane wrong, save the screen as a fixture named
 
 ## Limitations
 
-- **Polling, not events.** Without the title extension, a turn that starts
-  and finishes between two scans is never seen as working, so it's never
-  inferred as completed.
+- **Polling, not events.** A turn that starts and finishes between two
+  scans is never seen as working; it only reads as completed if the agent
+  prints an end-of-turn marker (Claude's `✻ Worked for …`, `✻ Turn took …`).
 - **Screen heuristics drift** as agent UIs and your own extensions change.
 - **Only what's on a local screen.** A detached zmx/dtach session or a
   non-active pane of a remote tmux isn't visible.

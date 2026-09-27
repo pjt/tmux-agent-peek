@@ -16,7 +16,7 @@ CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tmux-agent-peek"
 # Foreground commands that are agents in their own right.
 DEFAULT_CMD_PATTERN='^(claude|codex|opencode|aider|goose|gemini|kimi|kimi-code|pi)$'
 # Titles that identify an agent regardless of foreground command. pi sets
-# "π - <dir>" (or "π <glyph> <dir>" with extras/pi-title-state.ts); Claude
+# "π - [<session name> - ]<dir>"; Claude
 # Code sets "✳ <topic>" — and keeps the ✳ while working (verified on 2.1.x),
 # so for Claude the title is a detection signal only, never a state signal.
 # The braille alternatives cover older Claude builds / other spinners.
@@ -39,7 +39,9 @@ opt() { # opt <@option> <default>
 # One tmux call: every pane with the fields we need. Emits candidate agent
 # panes, tab-separated, empty fields as "-" (bash `read` collapses runs of
 # tabs, so fields must never be empty):
-#   id kind via title_state session win_idx win_name title path attached stack server_pid
+#   id kind via session win_idx win_name title path attached stack server_pid
+# The title only says WHERE an agent is; WHAT it's doing comes from the
+# screen (classify.awk), which also catches titles left stale on exit.
 discover() {
   tmux list-panes -a -F \
     '#{pane_id}	#{pane_current_command}	#{pane_title}	#{session_name}	#{window_index}	#{window_name}	#{pane_current_path}	#{session_last_attached}	#{window_stack_index}	#{pid}' \
@@ -68,18 +70,7 @@ discover() {
       # already exited. classify.awk tells them apart from the screen.
       if (kind != cmd && cmd ~ shellpat) via = "script"
 
-      # Title-state protocol: "<mark> <glyph> …" where glyph is one of
-      # ▲ ✖ ■ ✻ ✔ ○ (see extras/pi-title-state.ts).
-      ts = "-"
-      split(title, tk, " ")
-      if      (tk[2] == "▲") ts = "needs_input"
-      else if (tk[2] == "✖") ts = "failed"
-      else if (tk[2] == "■") ts = "stopped"
-      else if (tk[2] == "✻") ts = "working"
-      else if (tk[2] == "✔") ts = "completed"
-      else if (tk[2] == "○") ts = "idle"
-
-      print id, kind, via, ts, nz($4), nz($5), nz($6), nz(title), nz($7), nz($8), nz($9), nz($10)
+      print id, kind, via, nz($4), nz($5), nz($6), nz(title), nz($7), nz($8), nz($9), nz($10)
     }'
 }
 
@@ -109,7 +100,8 @@ capture() { # stdin: discover rows -> stdout: classify.awk input
 # Rows out of scan(), tab-separated, never empty:
 #   1 pane_id  2 rank  3 status  4 session  5 win_idx  6 win_name  7 title
 #   8 path  9 session_last_attached  10 window_stack_index  11 kind  12 via
-#   13 source (title|screen|inferred)  14 matched_line
+#   13 source (screen|inferred)  14 matched_line
+#   15 screen_place (agent-reported cwd/branch, e.g. from pi's footer)
 #
 # Merges three inputs in one awk pass:
 #   1. the previous scan's cache (per tmux server), for transition inference
@@ -118,7 +110,7 @@ capture() { # stdin: discover rows -> stdout: classify.awk input
 # and writes the new cache plus a transitions file for notify().
 #
 # State rules:
-#   raw   = title state if the title carries one, else the screen state
+#   raw   = the screen state
 #   previous final completed + raw idle/completed: stay completed (screen
 #     markers scroll in and out of view as the agent redraws; that must not
 #     read as a new turn ending)
@@ -143,7 +135,7 @@ scan() {
   cands="$(discover)"
   [ -n "$cands" ] || return 0
 
-  server_pid="$(printf '%s\n' "$cands" | head -n 1 | cut -f 12)"
+  server_pid="$(printf '%s\n' "$cands" | head -n 1 | cut -f 11)"
   cache="$CACHE_DIR/state-$server_pid.tsv"
   result="$CACHE_DIR/scan-$server_pid.tsv"
   lock="$CACHE_DIR/lock-$server_pid"
@@ -164,13 +156,12 @@ scan() {
   awk -v now="$(date +%s)" -v ttl="$ttl" -v newcache="$new_cache" -v trans="$trans" -v logf="$log" '
     BEGIN { FS = OFS = "\t" }
     FILENAME == ARGV[1] { pfinal[$1] = $2; psince[$1] = $3; praw[$1] = $4; next }
-    FILENAME == ARGV[2] { sstate[$1] = $2; smatch[$1] = $3; next }
+    FILENAME == ARGV[2] { sstate[$1] = $2; smatch[$1] = $3; splace[$1] = $4; next }
     {
-      id = $1; kind = $2; via = $3; ts = $4
-      ss = (id in sstate) ? sstate[id] : "idle"
-      if (ss == "gone") next
-
-      if (ts != "-") { raw = ts; src = "title" } else { raw = ss; src = "screen" }
+      id = $1; kind = $2; via = $3
+      raw = (id in sstate) ? sstate[id] : "idle"
+      if (raw == "gone") next
+      src = "screen"
 
       if ((id in pfinal) && pfinal[id] == "completed" && (raw == "idle" || raw == "completed")) {
         final = "completed"; since = psince[id]
@@ -180,7 +171,7 @@ scan() {
         if (final != raw) src = "inferred"
       } else {
         final = raw; since = now
-        if (src == "screen" && raw == "idle" && (id in pfinal) &&
+        if (raw == "idle" && (id in pfinal) &&
             (pfinal[id] == "working" || pfinal[id] == "needs_input")) {
           final = "completed"; src = "inferred"
         }
@@ -194,7 +185,7 @@ scan() {
         print strftime_now(), id, p " -> " final, "raw=" raw, src, substr(m, 1, 100) >> logf
         if (final == "needs_input" ||
             (final ~ /^(completed|failed|stopped)$/ && (p == "working" || p == "needs_input")))
-          print id, final, kind, via, $5, $6, $7 > trans
+          print id, final, kind, via, $4, $5, $6 > trans
       }
 
       rank = 5
@@ -203,7 +194,8 @@ scan() {
       else if (final == "stopped") rank = 2
       else if (final == "working") rank = 3
       else if (final == "completed") rank = 4
-      print id, rank, final, $5, $6, $7, $8, $9, $10, $11, kind, via, src, m
+      pl = (id in splace && splace[id] != "") ? splace[id] : "-"
+      print id, rank, final, $4, $5, $6, $7, $8, $9, $10, kind, via, src, m, pl
     }
     function strftime_now(   c, t) {  # macOS awk has no strftime()
       if (NOW_STR == "") { c = "date +%H:%M:%S"; c | getline NOW_STR; close(c) }
@@ -423,16 +415,16 @@ branch_for_path() { # <path> -> sets BRANCH_RESULT
 }
 
 # Strip the agent's own title decoration: "π - dev" -> "dev",
-# "π ✻ name - dev" -> "name - dev", "✳ Fix login" -> "Fix login"; blank
+# "π - name - dev" -> "name - dev", "✳ Fix login" -> "Fix login"; blank
 # generic titles (hostnames, "user@host: path"). -> sets CLEAN_TITLE
 clean_title() { # <title> <host> <hshort>
   local t="$1"
   [ "$t" = '-' ] && t=''
   case "$t" in
+    # "π - <session> - <dir>": keep the session name; the place column
+    # shows the directory. A bare "π - <dir>" keeps the dir.
+    'π - '*' - '*) t="${t#π - }"; t="${t% - *}" ;;
     'π - '*)  t="${t#π - }" ;;
-    # alternation, not a [▲✖…] bracket: brackets match bytes under LANG=C
-    'π ▲ '* | 'π ✖ '* | 'π ■ '* | 'π ✻ '* | 'π ✔ '* | 'π ○ '*)
-              t="${t#π }"; t="${t#* }" ;;
     π)        t='' ;;
     '✳ '*)    t="${t#✳ }" ;;
   esac
@@ -442,11 +434,13 @@ clean_title() { # <title> <host> <hshort>
   CLEAN_TITLE="$t"
 }
 
-# Where the pane lives: branch+path for local agents; for agents behind
-# ssh/zmx/docker the local cwd is meaningless, so say how it's reached.
-place_for() { # <via> <path> -> sets PLACE_RESULT
+# Where the pane lives: branch+path for local agents. For agents behind
+# ssh/zmx/docker/a script the local cwd is meaningless: use what the agent
+# itself shows on screen (pi's footer: remote cwd + branch), else say how
+# it's reached.
+place_for() { # <via> <path> <screen_place> -> sets PLACE_RESULT
   if [ "$1" != '-' ]; then
-    PLACE_RESULT="⇄ via $1"
+    if [ "${3:--}" != '-' ]; then PLACE_RESULT="⇄ $3"; else PLACE_RESULT="⇄ via $1"; fi
   else
     branch_for_path "$2"
     PLACE_RESULT="${BRANCH_RESULT:+⎇ $BRANCH_RESULT · }${2/#"$HOME"/\~}"
@@ -458,7 +452,7 @@ place_for() { # <via> <path> -> sets PLACE_RESULT
 # gives up space first if the popup is narrow.
 render_list() {
   local host hshort buf
-  local pane_id rank status session win_idx win_name title path attached stack kind via src m
+  local pane_id rank status session win_idx win_name title path attached stack kind via src m splace
   local session_w=0 winname_w=0 title_w=0 kind_w=0 place_w=0
   local session_cap=20 winname_cap=24 title_cap=60 kind_cap=10 place_cap=40
   local popup_cols overhead_w title_budget
@@ -469,9 +463,9 @@ render_list() {
   buf="$(cat)"
   [ -z "$buf" ] && return 0
 
-  while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack kind via src m; do
+  while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack kind via src m splace; do
     clean_title "$title" "$host" "$hshort"
-    place_for "$via" "$path"
+    place_for "$via" "$path" "$splace"
     dwidth "$session:$win_idx"; [ "$DWIDTH_RESULT" -gt "$session_w" ] && session_w="$DWIDTH_RESULT"
     dwidth "$win_name";         [ "$DWIDTH_RESULT" -gt "$winname_w" ] && winname_w="$DWIDTH_RESULT"
     dwidth "$kind";             [ "$DWIDTH_RESULT" -gt "$kind_w" ]    && kind_w="$DWIDTH_RESULT"
@@ -492,11 +486,11 @@ render_list() {
   [ "$title_w" -gt "$title_budget" ] && title_w="$title_budget"
   [ "$title_w" -gt "$title_cap" ] && title_w="$title_cap"
 
-  while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack kind via src m; do
+  while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack kind via src m splace; do
     local here label_col session_col winname_col kind_col title_col
     style "$status"
     clean_title "$title" "$host" "$hshort"
-    place_for "$via" "$path"
+    place_for "$via" "$path" "$splace"
     here='  '; [ "$pane_id" = "${AGENT_PEEK_CURRENT:-}" ] && here='◂ '
     printf -v label_col '%-11s' "$STYLE_LABEL"
     fit "$session:$win_idx" "$session_w"; session_col="$FIT_RESULT"

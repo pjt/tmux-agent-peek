@@ -7,13 +7,13 @@ Small Bash tmux plugin, no build step.
   state merge/inference, notifications, fzf picker, jump.
 - `scripts/classify.awk` — screen → state heuristics. Pure function of its
   input; all screen-pattern changes go here.
-- `extras/pi-title-state.ts` — optional pi extension publishing state in the
-  terminal title.
 - `tests/run.sh` + `tests/fixtures/` — classifier fixtures, named
   `<expected-state>--<description>.txt`.
 
 ## Invariants
 
+- Title = WHERE (discovery), screen = WHAT (state, liveness, remote place).
+  Don't make the title carry state.
 - Discovery and state use **only the local tmux server**: no `ps`, no hooks,
   no network. (`ps` is used solely to find the terminal app for notifications.)
 - One `list-panes` and one batched `capture-pane` per scan.

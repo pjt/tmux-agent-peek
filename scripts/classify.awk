@@ -5,7 +5,11 @@
 # followed by that pane's visible screen (tmux capture-pane -p -J).
 #
 # Output: one line per pane, tab-separated:
-#   pane_id  state  matched_line
+#   pane_id  state  matched_line  place
+# place is where the agent says it is, read from its own UI ("-" if
+# unknown). pi's footer puts "<cwd> (<branch>) • <session name>" on the line
+# above its token/usage line; this matters for remote agents, whose local
+# pane cwd is meaningless.
 # state ∈ needs_input failed stopped working completed idle gone
 #
 # Rules (kept from tmux-agent-view's old scraper, extended for pi):
@@ -24,19 +28,34 @@
 
 BEGIN { if (TAIL == "") TAIL = 40 }
 
+# "~/dev/web-api (spike/x) • support: timing" -> "⎇ spike/x · ~/dev/web-api"
+function pi_place(l,   path, br) {
+  sub(/^[ \t]+/, "", l); sub(/[ \t]+$/, "", l)
+  sub(/ • .*$/, "", l)
+  path = l; br = ""
+  if (match(l, / \([^()]*\)$/)) {
+    br = substr(l, RSTART + 2, RLENGTH - 3)
+    path = substr(l, 1, RSTART - 1)
+  }
+  return (br != "" ? "⎇ " br " · " path : path)
+}
+
 function flush(   i, start, line, s, m, present) {
   if (id == "") return
   # trim trailing blank lines (unused screen rows)
   while (n > 0 && lines[n] ~ /^[ \t]*$/) n--
   start = n - TAIL + 1; if (start < 1) start = 1
-  s = ""; m = ""; present = 0; last = ""
+  s = ""; m = ""; present = 0; last = ""; place = ""
   for (i = start; i <= n; i++) {
     line = lines[i]
     if (line ~ /^[ \t]*$/) continue
-    last = line
+    prev = last; last = line
 
     # ---- presence signatures (only consulted for remote panes)
-    if (kind == "pi" && ((line ~ /↑[0-9]/ && line ~ /↓[0-9]/) || line ~ /[0-9.]+%\/[0-9.]+[kM]/)) present = 1
+    if (kind == "pi" && ((line ~ /↑[0-9]/ && line ~ /↓[0-9]/) || line ~ /[0-9.]+%\/[0-9.]+[kM]/)) {
+      present = 1
+      if (prev ~ /^ *(~|\/)/) place = pi_place(prev)
+    }
     if (kind == "claude" && line ~ /for shortcuts|shift\+tab to cycle|esc to interrupt|⏵⏵|\[(Opus|Sonnet|Haiku)/) present = 1
     if (kind != "pi" && kind != "claude") present = 1
 
@@ -82,7 +101,8 @@ function flush(   i, start, line, s, m, present) {
   if (s == "") s = "idle"
   gsub(/\t/, " ", m); sub(/^[ \t]+/, "", m); sub(/[ \t]+$/, "", m)
   if (m == "") m = "-"
-  print id "\t" s "\t" m
+  gsub(/\t/, " ", place); if (place == "") place = "-"
+  print id "\t" s "\t" m "\t" place
   id = ""; n = 0
 }
 
