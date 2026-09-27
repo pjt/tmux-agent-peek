@@ -479,8 +479,15 @@ render_list() {
 
   # here marker (2) + icon (2) + space (1) + label (11) + 5 gaps of 2 = 26
   overhead_w=26
-  # tput must read the popup's tty, not our piped stdin.
-  popup_cols="$( { tput cols < /dev/tty; } 2>/dev/null )"; popup_cols="${popup_cols:-100}"
+  # Width of the popup. Our stdout is a pipe into fzf, and macOS tput asks
+  # stdout's terminal (falling back to 80 even with stdin on /dev/tty), so
+  # ask the tty directly: `stty size` reads stdin, which we point at it.
+  popup_cols="$( { stty size < /dev/tty; } 2>/dev/null )"; popup_cols="${popup_cols##* }"
+  case "$popup_cols" in ''|*[!0-9]*) popup_cols="$( { tput cols < /dev/tty; } 2>/dev/null )" ;; esac
+  popup_cols="${popup_cols:-100}"
+  # Titles are the most informative free text: let them grow with the popup
+  # (40% of its width, never below the base cap of 60).
+  [ "$(( popup_cols * 40 / 100 ))" -gt "$title_cap" ] && title_cap="$(( popup_cols * 40 / 100 ))"
   title_budget=$(( popup_cols - 2 - overhead_w - session_w - winname_w - kind_w - place_w ))
   [ "$title_budget" -lt 10 ] && title_budget=10
   [ "$title_w" -gt "$title_budget" ] && title_w="$title_budget"
