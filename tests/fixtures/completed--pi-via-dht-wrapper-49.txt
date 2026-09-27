@@ -1,0 +1,13 @@
+::peek:: %1 pi script
+   ◉ Query cost. Each query scans about 3.5 GB whatever the filter; I ran two.                                                                                                                                                          │
+                                                                                                                                                                                                                                                     │
+   Everything is saved in ~/tmp/report/. README.md has the full write-up; the scripts, both queries and the CSVs are alongside it.      ┃
+                                                                                                                                                                                                                                                     ┃
+   ✻ Turn took 8m 19s (Total time 56h 15m 21s · 4 turns)                                                                                                                                                                                             ┃
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/dev/data-query (main)
+↑204 ↓70k R9.4M W447k CH99.9% $6.711 17.3%/1.0M (auto)                                                                                                                                                       (vertex-anthropic) claude-opus-5-5 • high
+ 9 pkgs · auto-update off

@@ -1,0 +1,7 @@
+::peek:: %1 pi script
+~/dev/app
+↑3 ↓1.1k $0.012 0.4%/1.0M (auto)
+ 9 pkgs · auto-update off
+
+~/dev/app on  main
+❯ git status

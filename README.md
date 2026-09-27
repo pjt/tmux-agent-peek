@@ -38,12 +38,12 @@ peek reads those.
    - its foreground command is an agent (`claude`, `codex`, `opencode`,
      `aider`, `goose`, `gemini`, `kimi`, `pi`), or
    - its title looks like an agent's (`π - …` for pi, `✳ …` for Claude Code —
-     which keeps the `✳` while working, so its title never carries state) —
-     unless the foreground is a local shell, which means the agent exited and
-     left a stale title behind.
+     which keeps the `✳` while working, so its title never carries state).
 
    If the foreground is `ssh`, `mosh`, `docker`, `zmx`, … the pane is marked
-   as reached *via* that command.
+   as reached *via* that command. If it's a shell, the pane is marked
+   *via script*: a wrapper (say, a reconnect loop around `ssh`) leads the
+   foreground process group, so tmux reports the script's interpreter.
 2. **Read state**, first match wins:
    1. **Title glyph** — `π ✻ dev`: an exact state published by the agent
       itself. See [pi-title-state](#optional-exact-state-for-pi).
@@ -53,10 +53,11 @@ peek reads those.
 3. **Infer** — a small per-server cache remembers each pane's last state.
    `working → idle` on screen becomes **completed** (stock pi leaves no
    "done" marker). Completed ages to idle after 30 min.
-4. **Stale remote titles** — for panes reached via ssh/etc., if the screen
-   shows no sign of the agent's UI (pi's token footer, Claude's prompt
-   chrome) the pane is dropped: the agent exited and the remote shell kept
-   its title.
+4. **Stale titles** — agents don't reset the title on exit, and pi leaves
+   its last frame (footer included) on screen. So for panes found by title
+   (via ssh/script/…), the pane is dropped if the agent's UI isn't visible
+   (pi's token footer, Claude's prompt chrome) **or** the bottom line is a
+   shell prompt (`❯`, `$`, `#`, `%`, `➜`, `λ`, `»`).
 
 Preview and jump are plain `tmux capture-pane` / `switch-client` — they work
 for remote agents too, because the remote agent *is* drawing in a local pane.
@@ -170,6 +171,8 @@ When peek gets a pane wrong, save the screen as a fixture named
 - **Screen heuristics drift** as agent UIs and your own extensions change.
 - **Only what's on a local screen.** A detached zmx/dtach session or a
   non-active pane of a remote tmux isn't visible.
+- **Unusual prompts.** A shell prompt that doesn't end in one of the
+  prompt characters above makes an exited agent's stale title look live.
 - **Transcript text can fool it.** An agent quoting `Do you want to proceed?`
   near the bottom of the screen reads as needs input.
 

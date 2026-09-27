@@ -13,10 +13,11 @@
 #   - The marker CLOSEST TO THE BOTTOM wins: a permission dialog below a
 #     spinner reads needs_input; a fresh spinner below an old summary reads
 #     working.
-#   - "gone": for panes reached through ssh/docker/etc. (via != "-") the
-#     title may be stale after the agent exits, since the remote shell
-#     usually doesn't reset it. If no sign of the agent's UI is on screen, we
-#     report gone and the pane is dropped from the list.
+#   - "gone": for panes found by title through ssh/docker/a wrapper script
+#     (via != "-"), the title may be stale: agents don't reset it on exit,
+#     and they leave their last frame (footer included) on screen. So the
+#     pane is gone if the agent's UI isn't visible OR the bottom line is a
+#     shell prompt.
 #
 # macOS awk (20200816) is byte-oriented; multibyte glyphs are only used as
 # literal alternations, which match correctly byte-for-byte.
@@ -28,10 +29,11 @@ function flush(   i, start, line, s, m, present) {
   # trim trailing blank lines (unused screen rows)
   while (n > 0 && lines[n] ~ /^[ \t]*$/) n--
   start = n - TAIL + 1; if (start < 1) start = 1
-  s = ""; m = ""; present = 0
+  s = ""; m = ""; present = 0; last = ""
   for (i = start; i <= n; i++) {
     line = lines[i]
     if (line ~ /^[ \t]*$/) continue
+    last = line
 
     # ---- presence signatures (only consulted for remote panes)
     if (kind == "pi" && ((line ~ /↑[0-9]/ && line ~ /↓[0-9]/) || line ~ /[0-9.]+%\/[0-9.]+[kM]/)) present = 1
@@ -69,7 +71,14 @@ function flush(   i, start, line, s, m, present) {
       s = "completed"; m = line; continue
     }
   }
-  if (via != "-" && !present) { s = "gone"; m = "" }
+  # Shell prompt on the bottom line, either
+  #   - a prompt char ending the line ("❯", "bash-5.3$", "user@host:~$"), or
+  #   - a prompt char at a word boundary followed by typed text
+  #     ("❯ git status", "~/dev$ ls", "➜  repo"). Digits don't count as a
+  #     boundary here, so footers like "CH99.2% $0.106" are not prompts.
+  sub(/[ \t]+$/, "", last)
+  if (via != "-" && (!present || last ~ /(\$|#|%|❯|➜|λ|»)$/ ||
+                     last ~ /(^|[ :~\/\])])(\$|#|%|❯|➜|λ|») /)) { s = "gone"; m = "" }
   if (s == "") s = "idle"
   gsub(/\t/, " ", m); sub(/^[ \t]+/, "", m); sub(/[ \t]+$/, "", m)
   if (m == "") m = "-"

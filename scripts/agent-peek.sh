@@ -23,8 +23,9 @@ DEFAULT_CMD_PATTERN='^(claude|codex|opencode|aider|goose|gemini|kimi|kimi-code|p
 DEFAULT_TITLE_PATTERN='^π( |$)|^(✳|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|⠂|⠐) '
 # Foreground commands that mean "the agent is on the other side of this".
 DEFAULT_VIA_PATTERN='^(ssh|mosh|mosh-client|et|docker|podman|kubectl|zmx)$'
-# Shells: a title match on a pane whose foreground is a local shell is a
-# stale title left behind by an agent that already exited.
+# Shells: a title match on a pane whose foreground is a shell means either a
+# wrapper script running the agent, or a stale title left behind by an agent
+# that already exited; the screen decides (classify.awk "gone").
 SHELL_PATTERN='^-?(bash|zsh|fish|sh|dash|ksh|tcsh|nu)$'
 
 opt() { # opt <@option> <default>
@@ -55,13 +56,17 @@ discover() {
       if (cmd ~ cmdpat) {
         kind = cmd; sub(/-code$/, "", kind)
       } else if (title ~ titlepat) {
-        if (cmd ~ shellpat) next              # stale title, agent exited
         if (title ~ /^π( |$)/)      kind = "pi"
         else if (title ~ /^(✳|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|⠂|⠐) /) kind = "claude"
         else                         kind = "agent"
       }
       if (kind == "") next
       via = (cmd ~ viapat) ? cmd : "-"
+      # An agent title over a shell is either a wrapper script running the
+      # agent (e.g. a reconnect loop around ssh — the script, not ssh, leads
+      # the foreground process group) or a stale title from an agent that
+      # already exited. classify.awk tells them apart from the screen.
+      if (kind != cmd && cmd ~ shellpat) via = "script"
 
       # Title-state protocol: "<mark> <glyph> …" where glyph is one of
       # ▲ ✖ ■ ✻ ✔ ○ (see extras/pi-title-state.ts).
