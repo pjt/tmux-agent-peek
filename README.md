@@ -52,8 +52,11 @@ peek reads those.
    are caught on screen, and agent-looking text in a non-agent pane (vim on
    a transcript) never gets past the title gate.
 3. **Infer** — a small per-server cache remembers each pane's last state.
-   `working → idle` on screen becomes **completed** (stock pi leaves no
-   "done" marker). Completed ages to idle after 30 min.
+   Leaving *working* must **settle**: the spinner has to be absent from every
+   scan for 10 s (`@agent-peek-settle`) — remote panes redraw in pieces, and
+   a capture that lands mid-redraw sees no spinner. After that,
+   `working → idle` becomes **completed** (stock pi leaves no "done" marker).
+   Completed ages to idle after 30 min.
 4. **Stale titles** — agents don't reset the title on exit, and pi leaves
    its last frame (footer included) on screen. So for panes found by title
    (via ssh/script/…), the pane is dropped if the agent's UI isn't visible
@@ -133,6 +136,7 @@ tmux-agent-view, set a different key for one of them.
 | `@agent-peek-notify-states` | `needs_input,completed,failed,stopped` | which states alert |
 | `@agent-peek-sound` | `Glass` | sound file or system sound name |
 | `@agent-peek-sound-<state>` | — | per-state sound override |
+| `@agent-peek-settle` | `10` | seconds the spinner must stay gone before leaving working |
 | `@agent-peek-completed-ttl` | `1800` | seconds before completed ages to idle (0 = never) |
 | `@agent-peek-tail` | `40` | bottom screen lines the classifier examines |
 | `@agent-peek-cmd-pattern` | see script | regex: foreground commands that are agents |

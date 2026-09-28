@@ -111,6 +111,13 @@ capture() { # stdin: discover rows -> stdout: classify.awk input
 #
 # State rules:
 #   raw   = the screen state
+#   previous final working + raw not working: settle first. Stay working
+#     until the spinner has been absent from EVERY scan for
+#     @agent-peek-settle seconds (default 10); any working reading resets
+#     the clock. Remote panes (ssh/zmx) redraw in pieces, so single captures
+#     regularly land mid-redraw with the spinner line blank — without this,
+#     long turns flap working<->completed every few seconds. After settling,
+#     idle means completed (pi leaves no "done" marker on screen).
 #   previous final completed + raw idle/completed: stay completed (screen
 #     markers scroll in and out of view as the agent redraws; that must not
 #     read as a new turn ending)
@@ -129,7 +136,7 @@ capture() { # stdin: discover rows -> stdout: classify.awk input
 # it finds no transition and sends no duplicate banner. If a scan finished
 # while we waited, its result is reused outright.
 scan() {
-  local cands screens server_pid cache new_cache trans ttl start lock result log
+  local cands screens server_pid cache new_cache trans ttl settle start lock result log
   start="$(date +%s)"
   mkdir -p "$CACHE_DIR" 2>/dev/null
   cands="$(discover)"
@@ -143,6 +150,7 @@ scan() {
   new_cache="$cache.$$"
   trans="$CACHE_DIR/transitions.$$"
   ttl="$(opt @agent-peek-completed-ttl 1800)"
+  settle="$(opt @agent-peek-settle 10)"
 
   lock_acquire "$lock" || { [ -f "$result" ] && cat "$result"; return 0; }
   # Another client's scan completed while we waited: reuse it.
@@ -153,9 +161,9 @@ scan() {
   screens="$(printf '%s\n' "$cands" | capture | awk -v TAIL="$(opt @agent-peek-tail 40)" -f "$CLASSIFY")"
   [ -f "$cache" ] || : > "$cache"
 
-  awk -v now="$(date +%s)" -v ttl="$ttl" -v newcache="$new_cache" -v trans="$trans" -v logf="$log" '
+  awk -v now="$(date +%s)" -v ttl="$ttl" -v settle="$settle" -v newcache="$new_cache" -v trans="$trans" -v logf="$log" '
     BEGIN { FS = OFS = "\t" }
-    FILENAME == ARGV[1] { pfinal[$1] = $2; psince[$1] = $3; praw[$1] = $4; next }
+    FILENAME == ARGV[1] { pfinal[$1] = $2; psince[$1] = $3; praw[$1] = $4; ppend[$1] = $5; next }
     FILENAME == ARGV[2] { sstate[$1] = $2; smatch[$1] = $3; splace[$1] = $4; next }
     {
       id = $1; kind = $2; via = $3
@@ -163,7 +171,17 @@ scan() {
       if (raw == "gone") next
       src = "screen"
 
-      if ((id in pfinal) && pfinal[id] == "completed" && (raw == "idle" || raw == "completed")) {
+      pend = "-"
+      if ((id in pfinal) && pfinal[id] == "working" && raw != "working") {
+        ps = (ppend[id] ~ /^[0-9]+$/) ? ppend[id] : now
+        if (now - ps < settle) {
+          final = "working"; since = psince[id]; pend = ps; src = "settling"
+        } else if (raw == "idle") {
+          final = "completed"; since = now; src = "inferred"
+        } else {
+          final = raw; since = now
+        }
+      } else if ((id in pfinal) && pfinal[id] == "completed" && (raw == "idle" || raw == "completed")) {
         final = "completed"; since = psince[id]
         if (raw != "completed") src = "inferred"
       } else if ((id in praw) && raw == praw[id]) {
@@ -171,14 +189,13 @@ scan() {
         if (final != raw) src = "inferred"
       } else {
         final = raw; since = now
-        if (raw == "idle" && (id in pfinal) &&
-            (pfinal[id] == "working" || pfinal[id] == "needs_input")) {
+        if (raw == "idle" && (id in pfinal) && pfinal[id] == "needs_input") {
           final = "completed"; src = "inferred"
         }
       }
       if (final == "completed" && ttl > 0 && now - since >= ttl) final = "idle"
 
-      print id, final, since, raw > newcache
+      print id, final, since, raw, pend > newcache
       m = (id in smatch) ? smatch[id] : "-"
       if ((id in pfinal) && final != pfinal[id]) {
         p = pfinal[id]
