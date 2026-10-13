@@ -77,7 +77,14 @@ function flush(   i, start, line, s, m, present) {
     # ---- working: spinner word + "… (" (Claude, and pi with Claude-style
     # spinner extensions), the interrupt hint (Claude "esc to interrupt",
     # pi default "Working (esc to interrupt)"), braille/moon spinners (Kimi).
+    # pi's other status lines are part of a run too: the auto-retry
+    # countdown (pi clears its progress state while it waits), compaction,
+    # branch summaries. pi 1.1 draws the spinner inside the editor's top
+    # border ("── ✢ Manifesting… ───"); the "(12s)" elapsed time only
+    # shows up some seconds into the turn.
     if (line ~ /to interrupt\)|esc to interrupt|(✻|✽|✶|✳|✢|✺|·) .*… ?\(/ ||
+        (kind == "pi" && line ~ /^── (✻|✽|✶|✳|✢|✺|·|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏) .*(…|\.\.\.) ─/) ||
+        (kind == "pi" && line ~ /Retrying \([0-9]+\/[0-9]+\) in [0-9]+s\.\.\.|(Compacting context|Auto-compacting|Summarizing branch)\.\.\. \(/) ||
         line ~ /(⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏) (thinking|working)\.\.\./ ||
         line ~ /(🌑|🌒|🌓|🌔|🌕|🌖|🌗|🌘) ·/) {
       s = "working"; m = line; continue
