@@ -39,12 +39,15 @@ opt() { # opt <@option> <default>
 # One tmux call: every pane with the fields we need. Emits candidate agent
 # panes, tab-separated, empty fields as "-" (bash `read` collapses runs of
 # tabs, so fields must never be empty):
-#   id kind via session win_idx win_name title path attached stack server_pid
+#   id kind via session win_idx win_name title path attached stack server_pid pb
 # The title only says WHERE an agent is; WHAT it's doing comes from the
 # screen (classify.awk), which also catches titles left stale on exit.
+# pb is the pane's OSC 9;4 progress state (tmux 3.6+; "-" on older tmux):
+# pi sets it to "indeterminate" for the length of a run when
+# terminal.showTerminalProgress is on, and it survives ssh and zmx.
 discover() {
   tmux list-panes -a -F \
-    '#{pane_id}	#{pane_current_command}	#{pane_title}	#{session_name}	#{window_index}	#{window_name}	#{pane_current_path}	#{session_last_attached}	#{window_stack_index}	#{pid}' \
+    '#{pane_id}	#{pane_current_command}	#{pane_title}	#{session_name}	#{window_index}	#{window_name}	#{pane_current_path}	#{session_last_attached}	#{window_stack_index}	#{pid}	#{pane_pb_state}' \
     2>/dev/null |
   awk -v cmdpat="$(opt @agent-peek-cmd-pattern "$DEFAULT_CMD_PATTERN")" \
       -v titlepat="$(opt @agent-peek-title-pattern "$DEFAULT_TITLE_PATTERN")" \
@@ -70,7 +73,7 @@ discover() {
       # already exited. classify.awk tells them apart from the screen.
       if (kind != cmd && cmd ~ shellpat) via = "script"
 
-      print id, kind, via, nz($4), nz($5), nz($6), nz(title), nz($7), nz($8), nz($9), nz($10)
+      print id, kind, via, nz($4), nz($5), nz($6), nz(title), nz($7), nz($8), nz($9), nz($10), nz($11)
     }'
 }
 
@@ -106,11 +109,24 @@ capture() { # stdin: discover rows -> stdout: classify.awk input
 # Merges three inputs in one awk pass:
 #   1. the previous scan's cache (per tmux server), for transition inference
 #   2. screen classifications
-#   3. discovered candidates
+#   3. discovered candidates (including each pane's OSC 9;4 progress state)
 # and writes the new cache plus a transitions file for notify().
 #
 # State rules:
 #   raw   = the screen state
+#   progress = the pane's OSC 9;4 state is indeterminate/normal ("on").
+#     Only its EDGES are trusted outright: the level can go stale (the
+#     clear is sent once, so a dropped ssh or a crashed agent leaves it on;
+#     zmx doesn't replay it on reattach, pi's 1s keepalive re-sends it).
+#   progress turned on + raw idle/working/completed: working (a run began).
+#   previous final working + progress turned off + raw not working: leave
+#     working NOW, no settle (raw idle means completed). A pi status line
+#     (retry countdown, compaction) reads as working, which bridges the
+#     progress gap pi leaves between an error and its auto-retry.
+#   previous final working + progress still on + raw not working (except
+#     needs_input): hold working for @agent-peek-progress-hold seconds
+#     (default 120) of spinner-less scans, then fall through as below —
+#     that bound is what expires a stale progress state.
 #   previous final working + raw not working: settle first. Stay working
 #     until the spinner has been absent from EVERY scan for
 #     @agent-peek-settle seconds (default 10); any working reading resets
@@ -136,7 +152,7 @@ capture() { # stdin: discover rows -> stdout: classify.awk input
 # it finds no transition and sends no duplicate banner. If a scan finished
 # while we waited, its result is reused outright.
 scan() {
-  local cands screens server_pid cache new_cache trans ttl settle start lock result log
+  local cands screens server_pid cache new_cache trans ttl settle phold start lock result log
   start="$(date +%s)"
   mkdir -p "$CACHE_DIR" 2>/dev/null
   cands="$(discover)"
@@ -151,6 +167,7 @@ scan() {
   trans="$CACHE_DIR/transitions.$$"
   ttl="$(opt @agent-peek-completed-ttl 1800)"
   settle="$(opt @agent-peek-settle 10)"
+  phold="$(opt @agent-peek-progress-hold 120)"
 
   lock_acquire "$lock" || { [ -f "$result" ] && cat "$result"; return 0; }
   # Another client's scan completed while we waited: reuse it.
@@ -161,21 +178,32 @@ scan() {
   screens="$(printf '%s\n' "$cands" | capture | awk -v TAIL="$(opt @agent-peek-tail 40)" -f "$CLASSIFY")"
   [ -f "$cache" ] || : > "$cache"
 
-  awk -v now="$(date +%s)" -v ttl="$ttl" -v settle="$settle" -v newcache="$new_cache" -v trans="$trans" -v logf="$log" '
+  awk -v now="$(date +%s)" -v ttl="$ttl" -v settle="$settle" -v phold="$phold" -v newcache="$new_cache" -v trans="$trans" -v logf="$log" '
     BEGIN { FS = OFS = "\t" }
-    FILENAME == ARGV[1] { pfinal[$1] = $2; psince[$1] = $3; praw[$1] = $4; ppend[$1] = $5; next }
+    FILENAME == ARGV[1] { pfinal[$1] = $2; psince[$1] = $3; praw[$1] = $4; ppend[$1] = $5; ppb[$1] = $6; next }
     FILENAME == ARGV[2] { sstate[$1] = $2; smatch[$1] = $3; splace[$1] = $4; next }
     {
       id = $1; kind = $2; via = $3
       raw = (id in sstate) ? sstate[id] : "idle"
       if (raw == "gone") next
       src = "screen"
+      pb = ($12 == "indeterminate" || $12 == "normal") ? "on" : "off"
+      pbrise = (pb == "on" && (id in ppb) && ppb[id] != "on")
+      pbfall = (pb == "off" && ppb[id] == "on")
 
       pend = "-"
-      if ((id in pfinal) && pfinal[id] == "working" && raw != "working") {
+      if (pbrise && (raw == "idle" || raw == "working" || raw == "completed")) {
+        final = "working"; src = "progress"
+        since = ((id in pfinal) && pfinal[id] == "working") ? psince[id] : now
+      } else if ((id in pfinal) && pfinal[id] == "working" && raw != "working") {
         ps = (ppend[id] ~ /^[0-9]+$/) ? ppend[id] : now
-        if (now - ps < settle) {
-          final = "working"; since = psince[id]; pend = ps; src = "settling"
+        held = (pb == "on" && raw != "needs_input")
+        hold = held ? phold : settle
+        if (pbfall) {
+          final = (raw == "idle") ? "completed" : raw; since = now; src = "progress"
+        } else if (now - ps < hold) {
+          final = "working"; since = psince[id]; pend = ps
+          src = held ? "progress" : "settling"
         } else if (raw == "idle") {
           final = "completed"; since = now; src = "inferred"
         } else {
@@ -195,7 +223,7 @@ scan() {
       }
       if (final == "completed" && ttl > 0 && now - since >= ttl) final = "idle"
 
-      print id, final, since, raw, pend > newcache
+      print id, final, since, raw, pend, pb > newcache
       m = (id in smatch) ? smatch[id] : "-"
       if ((id in pfinal) && final != pfinal[id]) {
         p = pfinal[id]

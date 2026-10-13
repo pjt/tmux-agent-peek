@@ -57,7 +57,17 @@ peek reads those.
    a capture that lands mid-redraw sees no spinner. After that,
    `working → idle` becomes **completed** (stock pi leaves no "done" marker).
    Completed ages to idle after 30 min.
-4. **Stale titles** — agents don't reset the title on exit, and pi leaves
+4. **Progress** — the same `list-panes` call reads `#{pane_pb_state}`, the
+   OSC 9;4 progress state tmux (3.6+) keeps per pane. pi sets it for the
+   whole run when `terminal.showTerminalProgress` is on, and it passes
+   through ssh and zmx. When it turns on, the pane is working even if the
+   capture missed the spinner; when it turns off, working ends at once, with
+   no settle. While it stays on, a spinner-less screen holds working for up
+   to 120 s (`@agent-peek-progress-hold`). That limit matters because the
+   state can go stale: if the clear is lost (ssh dropped, agent crashed),
+   tmux keeps the old value. (pi's newer OSC 7501 status report would say
+   more, but tmux drops it.)
+5. **Stale titles** — agents don't reset the title on exit, and pi leaves
    its last frame (footer included) on screen. So for panes found by title
    (via ssh/script/…), the pane is dropped if the agent's UI isn't visible
    (pi's token footer, Claude's prompt chrome) **or** the bottom line is a
@@ -137,6 +147,7 @@ tmux-agent-view, set a different key for one of them.
 | `@agent-peek-sound` | `Glass` | sound file or system sound name |
 | `@agent-peek-sound-<state>` | — | per-state sound override |
 | `@agent-peek-settle` | `10` | seconds the spinner must stay gone before leaving working |
+| `@agent-peek-progress-hold` | `120` | seconds a pane's OSC 9;4 progress state can hold working with no spinner on screen |
 | `@agent-peek-completed-ttl` | `1800` | seconds before completed ages to idle (0 = never) |
 | `@agent-peek-tail` | `40` | bottom screen lines the classifier examines |
 | `@agent-peek-cmd-pattern` | see script | regex: foreground commands that are agents |

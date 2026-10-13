@@ -13,7 +13,10 @@ Small Bash tmux plugin, no build step.
 ## Invariants
 
 - Title = WHERE (discovery), screen = WHAT (state, liveness, remote place).
-  Don't make the title carry state.
+  Don't make the title carry state. The one exception: `#{pane_pb_state}`
+  (OSC 9;4 progress, set by pi during a run) can say *working*. Trust its
+  edges; never trust its level without a bound, because a lost clear leaves
+  it on.
 - Discovery and state use **only the local tmux server**: no `ps`, no hooks,
   no network. (`ps` is used solely to find the terminal app for notifications.)
 - One `list-panes` and one batched `capture-pane` per scan.
