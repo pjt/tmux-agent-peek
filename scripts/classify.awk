@@ -59,6 +59,11 @@ function flush(   i, start, line, s, m, present) {
     if (kind == "claude" && line ~ /for shortcuts|shift\+tab to cycle|esc to interrupt|⏵⏵|\[(Opus|Sonnet|Haiku)/) present = 1
     if (kind != "pi" && kind != "claude") present = 1
 
+    # ---- user prompt / editor input lines (pi-claude-code-ui 1.0.93+ prefixes
+    # past user prompts and the input editor with " ❯ "; Claude Code uses "^❯"
+    # at column 0, while its permission selector is indented or boxed).
+    if ((kind == "pi" && line ~ /^ *❯( |$)/) || (kind == "claude" && line ~ /^❯( |$)/)) continue
+
     # ---- needs input: permission dialog / plan approval / numbered choice.
     # Claude: "❯ 1."; Kimi: "▶ 1." + Approve/Reject.
     if (line ~ /Do you want|Would you like to proceed|[❯▶] [0-9]+\.|Approve for this session|Reject with feedback/) {
@@ -79,11 +84,12 @@ function flush(   i, start, line, s, m, present) {
     # pi default "Working (esc to interrupt)"), braille/moon spinners (Kimi).
     # pi's other status lines are part of a run too: the auto-retry
     # countdown (pi clears its progress state while it waits), compaction,
-    # branch summaries. pi 1.1 draws the spinner inside the editor's top
-    # border ("── ✢ Manifesting… ───"); the "(12s)" elapsed time only
-    # shows up some seconds into the turn.
+    # branch summaries. Before the "(12s)" / token parenthetical appears,
+    # pi 1.1 draws the spinner inside the editor's top border
+    # ("── ✢ Manifesting… ───") and pi 1.2+ draws it on its own line above
+    # the editor (" ✢ Manifesting…").
     if (line ~ /to interrupt\)|esc to interrupt|(✻|✽|✶|✳|✢|✺|·) .*… ?\(/ ||
-        (kind == "pi" && line ~ /^── (✻|✽|✶|✳|✢|✺|·|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏) .*(…|\.\.\.) ─/) ||
+        (kind == "pi" && line ~ /^(── | *)(✻|✽|✶|✳|✢|✺|·|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏) .*(…|\.\.\.)( ─|[ \t]*$)/) ||
         (kind == "pi" && line ~ /Retrying \([0-9]+\/[0-9]+\) in [0-9]+s\.\.\.|(Compacting context|Auto-compacting|Summarizing branch)\.\.\. \(/) ||
         line ~ /(⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏) (thinking|working)\.\.\./ ||
         line ~ /(🌑|🌒|🌓|🌔|🌕|🌖|🌗|🌘) ·/) {

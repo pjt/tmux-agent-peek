@@ -1,0 +1,12 @@
+::peek:: %1 pi -
+ ❯ 1. Check whether the migration ran cleanly                                                                             ┃
+                                                                                                                          ┃
+ ● All migrations are applied and up to date.                                                                             ┃
+                                                                                                                          ┃
+   ✻ Turn took 4s (Total time 1m 12s · 2 turns)                                                                           ┃
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ❯ 1. Do you want to proceed with the deploy?
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/dev/app (main)
+↑12 ↓1.2k R40k CH98.0% $0.042 2.1%/1.0M (auto)                                 (vertex-anthropic) claude-opus-5-5 • high
