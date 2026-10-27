@@ -1,0 +1,27 @@
+::peek:: %1 pi script
+   compare the first checks with the baseline.                                                                              │
+                                                                                                                            │
+ ✻ Turn took 2m 1s (Total time 22h 0m 43s · 15 turns)                                                                       │
+                                                                                                                            │
+ ❯ Heads up that I sometimes get this & have to rerun deploy-ddl:                                                           │
+                                                                                                                            │
+   ```                                                                                                                      │
+     ━━━  bigquery/campaigns/ddl/04_campaign_completion.sql  [env: prod-us]  ━━━                                            │
+     Waiting on bqjob_r7e3b19abab843eb0_000001a17e79255d_1 ... (7s) Current status: DONE                                    │
+     Error in query string: Error processing job                                                                            │
+   'viasat-dp-us-gsn-devmgmt-prod:bqjob_r7e3b19abab843eb0_000001a17e79255d_1':                                              │
+     Exceeded rate limits: too many table update operations for this table. For more information, see                       │
+     https://docs.cloud.google.com/bigquery/troubleshooting-errors at [117:1]                                               │
+   ```                                                                                                                      │
+                                                                                                                            ┃
+   Thought for 2s                                                                                                           ┃
+                                                                                                                            │
+ ● Bash cd ~/dev/adm-query && git pull -q -- ↓ Jump to latest message · Ctrl+End aigns/ddl/04_campaign_completion.sql;…  1s │
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ❯
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ps: ✓ 3 done
+~/dev/arboretum-device-management (main) • campaings-on-grafting, with UI
+↑6.5k ↓2.1M R1198M W132M CH99.7% $955.133 25.6%/1.0M (auto)                         (vertex-anthropic) claude-opus-5-5 • high
+ 11 pkgs · auto-update off

@@ -1,0 +1,12 @@
+::peek:: %1 pi -
+ ● Bash rm -rf build/
+─────────────────────────────────────────────────────────────
+ Allow this command?
+ → Yes
+   No
+
+ ↑↓ navigate  enter select  esc cancel
+
+─────────────────────────────────────────────────────────────
+~/dev/app (main)
+↑3 ↓1.1k $0.012 0.4%/1.0M (auto)

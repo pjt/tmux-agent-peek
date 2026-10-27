@@ -64,20 +64,30 @@ function flush(   i, start, line, s, m, present) {
     # at column 0, while its permission selector is indented or boxed).
     if ((kind == "pi" && line ~ /^ *❯( |$)/) || (kind == "claude" && line ~ /^❯( |$)/)) continue
 
-    # ---- needs input: permission dialog / plan approval / numbered choice.
-    # Claude: "❯ 1."; Kimi: "▶ 1." + Approve/Reject.
-    if (line ~ /Do you want|Would you like to proceed|[❯▶] [0-9]+\.|Approve for this session|Reject with feedback/) {
-      s = "needs_input"; m = line; continue
-    }
-    # ---- failed: API/tool error ending the turn
-    if (line ~ /API Error|Request timed out|OAuth token|Credit balance|overloaded_error|rate.?limit/ ||
-        (kind == "pi" && line ~ /^ *Error: /)) {
-      s = "failed"; m = line; continue
-    }
-    # ---- stopped: user interrupted
-    if (line ~ /⎿ *Interrupted|Interrupted by user/ ||
-        (kind == "pi" && line ~ /^ *Operation aborted/)) {
-      s = "stopped"; m = line; continue
+    # Markers are agent-specific. Broad text patterns ("rate limit", "Do
+    # you want") also match transcript content -- an assistant asking "Do you
+    # want me to…?", a pasted error log -- so for pi, whose layout we know,
+    # only match pi's own chrome. pi draws status lines at its 1-column
+    # outputPad; message bodies (and anything quoted in them) sit at 3+.
+    if (kind == "pi") {
+      # extension confirm/select dialogs (pi has no built-in permission prompt)
+      if (line ~ /^ ?↑↓ navigate .*select.*cancel/) { s = "needs_input"; m = line; continue }
+      if (line ~ /^ ?Error: /)                      { s = "failed";      m = line; continue }
+      if (line ~ /^ ?Operation aborted/)            { s = "stopped";     m = line; continue }
+    } else {
+      # ---- needs input: permission dialog / plan approval / numbered choice.
+      # Claude: "❯ 1."; Kimi: "▶ 1." + Approve/Reject.
+      if (line ~ /Do you want|Would you like to proceed|[❯▶] [0-9]+\.|Approve for this session|Reject with feedback/) {
+        s = "needs_input"; m = line; continue
+      }
+      # ---- failed: API/tool error ending the turn
+      if (line ~ /API Error|Request timed out|OAuth token|Credit balance|overloaded_error|rate.?limit/) {
+        s = "failed"; m = line; continue
+      }
+      # ---- stopped: user interrupted
+      if (line ~ /⎿ *Interrupted|Interrupted by user/) {
+        s = "stopped"; m = line; continue
+      }
     }
     # ---- working: spinner word + "… (" (Claude, and pi with Claude-style
     # spinner extensions), the interrupt hint (Claude "esc to interrupt",
