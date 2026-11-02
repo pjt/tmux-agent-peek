@@ -34,5 +34,3 @@ tests/run.sh
 scripts/agent-peek.sh debug
 scripts/agent-peek.sh status
 ```
-
-Commits: Conventional Commits (`feat:`, `fix:`, `refactor:`).
