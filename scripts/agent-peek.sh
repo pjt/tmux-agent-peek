@@ -579,7 +579,9 @@ EOF
   [ "$w" -gt 0 ] && out="$out#[fg=cyan]✻$w#[default] "
   [ "$c" -gt 0 ] && out="$out#[fg=green]✔$c#[default] "
   [ "$i" -gt 0 ] && out="$out#[fg=colour244]○$i#[default] "
-  printf '%s' "${out% }"
+  # The range makes the segment clickable (see the MouseDown1Status binding
+  # in agent-peek.tmux).
+  printf '#[range=user|agent-peek]%s#[norange]' "${out% }"
 }
 
 # Explain every candidate's classification — for tuning heuristics.

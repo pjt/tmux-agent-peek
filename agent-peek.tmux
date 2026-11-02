@@ -23,3 +23,12 @@ if [ "$(get_opt @agent-peek-status 'on')" = "on" ]; then
     *) tmux set-option -g status-right "#($SCRIPT status) $status_right" ;;
   esac
 fi
+
+# Clicking the summary opens the popup. Any other click on the status line
+# keeps tmux's default (switch to the clicked window).
+if [ "$(get_opt @agent-peek-mouse 'on')" = "on" ]; then
+  tmux bind-key -n MouseDown1Status if-shell -F \
+    '#{==:#{mouse_status_range},agent-peek}' \
+    "run-shell '$SCRIPT popup'" \
+    'switch-client -t ='
+fi
